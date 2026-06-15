@@ -228,8 +228,13 @@ pub enum Methods {
         blockhash: Option<BlockHash>,
     },
 
-    /// Returns the transaction, assuming it is cached by our watch only wallet
-    #[command(name = "gettransaction")]
+    #[doc = include_str!("../../../doc/rpc/gettransaction.md")]
+    #[command(
+        name = "gettransaction",
+        about = "Returns detailed information about a transaction cached in the watch-only wallet database.",
+        long_about = Some(include_str!("../../../doc/rpc/gettransaction.md")),
+        disable_help_subcommand = true
+    )]
     GetTransaction { txid: Txid, verbose: Option<bool> },
 
     #[doc = include_str!("../../../doc/rpc/rescanblockchain.md")]
@@ -389,7 +394,13 @@ pub enum Methods {
         node_id: Option<usize>,
     },
 
-    #[command(name = "findtxout")]
+    #[doc = include_str!("../../../doc/rpc/findtxout.md")]
+    #[command(
+        name = "findtxout",
+        about = "Attempts to find a transaction output (UTXO) in the blockchain using compact block filters.",
+        long_about = Some(include_str!("../../../doc/rpc/findtxout.md")),
+        disable_help_subcommand = true
+    )]
     FindTxOut {
         txid: Txid,
         vout: u32,
