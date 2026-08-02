@@ -223,6 +223,15 @@ pub struct Config {
     /// and won't affect the node's operation. You may notice that this will take a lot of CPU
     /// and bandwidth to run.
     pub backfill: bool,
+
+    /// Maximum number of block indexes we can store in our flat database
+    pub block_index_size: Option<usize>,
+
+    /// Maximum number of block headers we can store in our flat database
+    pub headers_file_size: Option<usize>,
+
+    /// Maximum number of alternative fork headers we can track
+    pub fork_file_size: Option<usize>,
 }
 
 impl Config {
@@ -257,6 +266,9 @@ impl Config {
             tls_cert_path: None,
             allow_v1_fallback: false,
             backfill: false,
+            block_index_size: None,
+            headers_file_size: None,
+            fork_file_size: None,
         }
     }
 }
@@ -369,11 +381,32 @@ impl Florestad {
         info!("Loading watch-only wallet");
         let wallet = self.setup_wallet()?;
 
+        let config_file = self.get_config_file();
+        let (block_index_size, headers_file_size, fork_file_size) = match config_file.chain_store {
+            Some(ref chain_store) => (
+                self.config
+                    .block_index_size
+                    .or(chain_store.block_index_size),
+                self.config
+                    .headers_file_size
+                    .or(chain_store.headers_file_size),
+                self.config.fork_file_size.or(chain_store.fork_file_size),
+            ),
+            None => (
+                self.config.block_index_size,
+                self.config.headers_file_size,
+                self.config.fork_file_size,
+            ),
+        };
+
         info!("Loading blockchain database");
         let blockchain_state = Arc::new(Self::load_chain_state(
             datadir,
             self.config.network,
             self.config.assume_valid,
+            block_index_size,
+            headers_file_size,
+            fork_file_size,
         )?);
 
         #[cfg(feature = "compact-filters")]
@@ -708,8 +741,14 @@ impl Florestad {
         datadir: impl AsRef<Path>,
         network: Network,
         assume_valid: AssumeValidArg,
+        block_index_size: Option<usize>,
+        headers_file_size: Option<usize>,
+        fork_file_size: Option<usize>,
     ) -> Result<ChainState<ChainStore>, FlorestadError> {
-        let chain_store_config = FlatChainStoreConfig::new(datadir.as_ref().join("chaindata"));
+        let mut chain_store_config = FlatChainStoreConfig::new(datadir.as_ref().join("chaindata"));
+        chain_store_config.block_index_size = block_index_size;
+        chain_store_config.headers_file_size = headers_file_size;
+        chain_store_config.fork_file_size = fork_file_size;
 
         let chain_store = ChainStore::new(chain_store_config)
             .map_err(|e| FlorestadError::CouldNotLoadFlatChainStore(e.into()))?;

@@ -4,12 +4,11 @@ use std::path::PathBuf;
 
 use bitcoin::BlockHash;
 use bitcoin::Network;
-#[cfg(unix)]
 use clap::CommandFactory;
 use clap::Parser;
 use floresta_node::AssumeValidArg;
 
-#[derive(Parser)]
+#[derive(Parser, Clone, Debug)]
 #[command(
     author = "Davidson Souza",
     version = env!("GIT_DESCRIBE"),
@@ -190,6 +189,18 @@ pub struct Cli {
     /// This will run in the background and wont't affect node's operation. However,
     /// to disable backfilling, run floresta using this flag.
     pub no_backfill: bool,
+
+    #[arg(long, value_name = "SIZE")]
+    /// The maximum number of block indexes we can store in our database (default: 10,000,000)
+    pub block_index_size: Option<usize>,
+
+    #[arg(long, value_name = "SIZE")]
+    /// The maximum number of block headers in the main chain we can store (default: 10,000,000)
+    pub headers_file_size: Option<usize>,
+
+    #[arg(long, value_name = "SIZE")]
+    /// The maximum number of alternative fork headers we can track (default: 10,000)
+    pub fork_file_size: Option<usize>,
 }
 
 impl Cli {
@@ -198,15 +209,48 @@ impl Cli {
     /// Checks:
     ///   - If `--pid-file` is passed, `--daemon` must also be passed.
     pub fn validate(&self) {
+        if let Err(err) = self.check_validity() {
+            err.exit();
+        }
+    }
+
+    fn check_validity(&self) -> Result<(), clap::Error> {
         #[cfg(unix)]
         if self.pid_file.is_some() && !self.daemon {
-            Self::command()
-                .error(
-                    clap::error::ErrorKind::MissingRequiredArgument,
-                    "--pid-file requires that --daemon be set",
-                )
-                .exit();
+            return Err(Self::command().error(
+                clap::error::ErrorKind::MissingRequiredArgument,
+                "--pid-file requires that --daemon be set",
+            ));
         }
+
+        if let Some(size) = self.block_index_size {
+            if size < 1000 {
+                return Err(Self::command().error(
+                    clap::error::ErrorKind::ValueValidation,
+                    "--block-index-size must be at least 1,000",
+                ));
+            }
+        }
+
+        if let Some(size) = self.headers_file_size {
+            if size < 1000 {
+                return Err(Self::command().error(
+                    clap::error::ErrorKind::ValueValidation,
+                    "--headers-file-size must be at least 1,000",
+                ));
+            }
+        }
+
+        if let Some(size) = self.fork_file_size {
+            if size < 10 {
+                return Err(Self::command().error(
+                    clap::error::ErrorKind::ValueValidation,
+                    "--fork-file-size must be at least 10",
+                ));
+            }
+        }
+
+        Ok(())
     }
 }
 
@@ -218,5 +262,95 @@ fn parse_assume_valid(s: &str) -> Result<AssumeValidArg, String> {
             .parse::<BlockHash>()
             .map(AssumeValidArg::UserInput)
             .map_err(|e| format!("expected 0 or a block hash, got '{other}': {e}")),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_cli_validation_bounds() {
+        // Base case with valid bounds
+        let base_cli = Cli {
+            disable_dns_seeds: false,
+            config_file: None,
+            network: Network::Bitcoin,
+            debug: false,
+            log_to_file: false,
+            data_dir: None,
+            no_cfilters: false,
+            proxy: None,
+            wallet_xpub: None,
+            wallet_descriptor: None,
+            assume_valid: AssumeValidArg::Hardcoded,
+            zmq_address: None,
+            connect: vec![],
+            rpc_address: None,
+            filters_start_height: None,
+            no_assume_utreexo: false,
+            electrum_address: None,
+            enable_electrum_tls: false,
+            electrum_address_tls: None,
+            generate_cert: false,
+            tls_key_path: None,
+            tls_cert_path: None,
+            allow_v1_fallback: false,
+            #[cfg(unix)]
+            daemon: false,
+            #[cfg(unix)]
+            pid_file: None,
+            no_backfill: false,
+            block_index_size: Some(1000),
+            headers_file_size: Some(1000),
+            fork_file_size: Some(10),
+        };
+
+        // Assert valid base case passes
+        assert!(base_cli.check_validity().is_ok());
+
+        // Test invalid block_index_size (under 1000)
+        let mut cli = base_cli.clone();
+        cli.block_index_size = Some(999);
+        let res = cli.check_validity();
+        assert!(res.is_err());
+        assert_eq!(
+            res.unwrap_err().kind(),
+            clap::error::ErrorKind::ValueValidation
+        );
+
+        // Test invalid headers_file_size (under 1000)
+        let mut cli = base_cli.clone();
+        cli.headers_file_size = Some(999);
+        let res = cli.check_validity();
+        assert!(res.is_err());
+        assert_eq!(
+            res.unwrap_err().kind(),
+            clap::error::ErrorKind::ValueValidation
+        );
+
+        // Test invalid fork_file_size (under 10)
+        let mut cli = base_cli.clone();
+        cli.fork_file_size = Some(9);
+        let res = cli.check_validity();
+        assert!(res.is_err());
+        assert_eq!(
+            res.unwrap_err().kind(),
+            clap::error::ErrorKind::ValueValidation
+        );
+
+        // Test valid boundary values
+        let mut cli = base_cli.clone();
+        cli.block_index_size = Some(1000);
+        cli.headers_file_size = Some(1000);
+        cli.fork_file_size = Some(10);
+        assert!(cli.check_validity().is_ok());
+
+        // Test valid values far above bounds
+        let mut cli = base_cli.clone();
+        cli.block_index_size = Some(10000000);
+        cli.headers_file_size = Some(10000000);
+        cli.fork_file_size = Some(10000);
+        assert!(cli.check_validity().is_ok());
     }
 }

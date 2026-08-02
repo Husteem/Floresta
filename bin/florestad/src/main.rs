@@ -94,6 +94,9 @@ fn main() {
         tls_key_path: params.tls_key_path,
         allow_v1_fallback: params.allow_v1_fallback,
         backfill: !params.no_backfill,
+        block_index_size: params.block_index_size,
+        headers_file_size: params.headers_file_size,
+        fork_file_size: params.fork_file_size,
     };
 
     #[cfg(unix)]
